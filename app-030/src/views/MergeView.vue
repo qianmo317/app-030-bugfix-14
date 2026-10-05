@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ensureMerged, flushProject, getProject, getRule, persistProject, store } from '../logic/store'
-import { buildSummary, conservationText } from '../logic/merge'
+import { buildSummary, conservationText, isSpecialPerson } from '../logic/merge'
 import { alignToStep, isSizeCodeValid, normalizeSizeCodeInput, specialFlagLabel } from '../logic/sizeRules'
 import { chestWaistDiffCm, cmToHalfUnits, formatCm, formatHalfUnits } from '../logic/precision'
 import type { Person, PersonStatus } from '../logic/types'
@@ -46,7 +46,7 @@ const pendingPersons = computed(() =>
 )
 
 const specialPersons = computed(() =>
-  (project.value?.persons ?? []).filter((person) => person.specialFlag && person.status === 'active')
+  (project.value?.persons ?? []).filter((person) => isSpecialPerson(person))
 )
 
 const duplicatePersons = computed(() =>
@@ -65,7 +65,7 @@ const filteredPersons = computed(() => {
     if (statusFilter.value === 'duplicate' && person.status !== 'duplicate') return false
     if (statusFilter.value === 'pending' && !(person.anomaly.length > 0 || person.needsConfirm)) return false
     if (statusFilter.value === 'overridden' && !person.result?.manualOverride) return false
-    if (statusFilter.value === 'special' && !person.specialFlag) return false
+    if (statusFilter.value === 'special' && !isSpecialPerson(person)) return false
     if (keyword === '') return true
     return (
       person.name.includes(keyword) ||

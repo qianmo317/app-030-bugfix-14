@@ -77,7 +77,8 @@ export function parseDelimitedText(text: string, delimiter?: string): string[][]
 function escapeCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return ''
   const text = String(value)
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  // 含逗号 / 引号 / 换行 / 制表符，或带前后空格（含纯空格）时加引号：空格不能被当成没值吃掉
+  if (/[",\n\r\t]/.test(text) || /^\s|\s$/.test(text)) return `"${text.replace(/"/g, '""')}"`
   return text
 }
 

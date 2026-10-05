@@ -10,14 +10,14 @@ import {
   exportBaseName,
   orderSheetToRows,
   orderWorkbookSheets,
-  personStatusLabel,
+  specialPersons,
   specialRows,
   stockAdviceRows,
-  summaryRowLabel
+  DETAIL_HEADER,
+  SPECIAL_HEADER
 } from '../logic/exporter'
 import { downloadBlob, downloadText, toCsvText } from '../logic/csv'
 import { buildXlsxBlob } from '../logic/xlsx'
-import { chestWaistDiffCm, formatCm } from '../logic/precision'
 
 const route = useRoute()
 const project = computed(() => getProject(route.params.id as string))
@@ -47,6 +47,29 @@ const orderSheet = computed(() => {
 })
 
 const blocked = computed(() => !summary.value?.conserved)
+
+/** 页面清单块 / 明细预览与导出文件同源同口径 */
+const specialList = computed(() => {
+  const ctx = context()
+  return ctx ? specialPersons(ctx) : []
+})
+
+const specialTableRows = computed(() => {
+  const ctx = context()
+  if (!ctx) return []
+  return specialRows(ctx).slice(1)
+})
+
+const detailTableRows = computed(() => {
+  const ctx = context()
+  if (!ctx) return []
+  return detailRows(ctx).slice(1)
+})
+
+function cellText(value: string | number): string {
+  if (value === '') return '—'
+  return String(value)
+}
 
 async function prepare(): Promise<boolean> {
   const current = project.value
@@ -101,7 +124,7 @@ async function exportSpecialCsv(): Promise<void> {
   const rows = specialRows(ctx)
   const fileName = exportBaseName(ctx, '特殊体型清单', 'csv')
   downloadText(toCsvText(rows), fileName)
-  notify(`已导出特殊体型清单（CSV，${rows.length - 1} 条）→ ${fileName}`)
+  notify(`已导出特殊体型清单（CSV，${rows.length - 1} 人，与页面清单同一批人）→ ${fileName}`)
 }
 
 async function exportStockCsv(): Promise<void> {
@@ -116,8 +139,6 @@ async function printPreview(): Promise<void> {
   if (blocked.value || !(await prepare())) return
   window.print()
 }
-
-const genderText = (gender: string): string => (gender === 'male' ? '男' : '女')
 </script>
 
 <template>
@@ -275,41 +296,29 @@ const genderText = (gender: string): string => (gender === 'male' ? '男' : '女
 
     <div class="card no-print">
       <div class="card-head">
-        <h3>特殊体型清单（{{ summary.totals.specialQty }} 套 · {{ summary.totals.specialPersonCount }} 人）</h3>
+        <h3>特殊体型清单（{{ specialList.length }} 人 · 与导出清单同一批人）</h3>
+        <div class="spacer"></div>
+        <span class="hint">口径同归并页：带特殊标记且状态有效；判为无效 / 重复排除的人不计入</span>
       </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
-              <th class="num">行号</th>
-              <th>姓名</th>
-              <th>性别</th>
-              <th>班级/车间</th>
-              <th class="num">身高</th>
-              <th class="num">胸围</th>
-              <th class="num">腰围</th>
-              <th class="num">胸腰差</th>
-              <th>标记</th>
-              <th>规则号型</th>
+              <th v-for="(title, index) in SPECIAL_HEADER" :key="index" :class="index === 0 ? 'num' : ''">{{ title }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="person in project.persons.filter((item) => item.specialFlag)" :key="person.id">
-              <td class="num">{{ person.sourceRow ?? '—' }}</td>
-              <td>{{ person.name }}</td>
-              <td>{{ genderText(person.gender) }}</td>
-              <td>{{ person.orgUnit || '—' }}</td>
-              <td class="num">{{ formatCm(person.heightCm) }}</td>
-              <td class="num">{{ formatCm(person.chestCm) }}</td>
-              <td class="num">{{ formatCm(person.waistCm) }}</td>
-              <td class="num">
-                {{ person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : '—' }}
+            <tr v-for="(row, rowIndex) in specialTableRows" :key="specialList[rowIndex]?.id ?? rowIndex">
+              <td
+                v-for="(cell, cellIndex) in row"
+                :key="cellIndex"
+                :class="cellIndex === 0 ? 'num' : ''"
+              >
+                {{ cellText(cell) }}
               </td>
-              <td>{{ summaryRowLabel(rule, { sizeCode: person.specialFlag ?? '', gender: person.gender, qty: 1, isSpecial: true }) }}</td>
-              <td>{{ person.result?.sizeCode || '规则未覆盖' }}</td>
             </tr>
-            <tr v-if="summary.totals.specialPersonCount === 0">
-              <td colspan="10">没有特殊体型记录</td>
+            <tr v-if="specialTableRows.length === 0">
+              <td :colspan="SPECIAL_HEADER.length">没有特殊体型记录</td>
             </tr>
           </tbody>
         </table>
@@ -318,36 +327,24 @@ const genderText = (gender: string): string => (gender === 'male' ? '男' : '女
 
     <div class="card no-print">
       <div class="card-head">
-        <h3>量体明细前 30 行（导出文件包含全部 {{ project.persons.length }} 行）</h3>
+        <h3>量体明细前 30 行预览（导出文件包含全部 {{ project.persons.length }} 行，列与文件完全一致）</h3>
       </div>
-      <div class="table-wrap">
+      <div class="table-scroll">
         <table class="data-table">
           <thead>
             <tr>
-              <th class="num">行号</th>
-              <th>姓名</th>
-              <th>性别</th>
-              <th>班级/车间</th>
-              <th class="num">身高</th>
-              <th class="num">胸围</th>
-              <th class="num">腰围</th>
-              <th>规则号型</th>
-              <th>生效号型</th>
-              <th>状态</th>
+              <th v-for="(title, index) in DETAIL_HEADER" :key="index" :class="index === 0 ? 'num' : ''">{{ title }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="person in project.persons.slice(0, 30)" :key="person.id">
-              <td class="num">{{ person.sourceRow ?? '—' }}</td>
-              <td>{{ person.name }}</td>
-              <td>{{ genderText(person.gender) }}</td>
-              <td>{{ person.orgUnit || '—' }}</td>
-              <td class="num">{{ formatCm(person.heightCm) }}</td>
-              <td class="num">{{ formatCm(person.chestCm) }}</td>
-              <td class="num">{{ formatCm(person.waistCm) }}</td>
-              <td>{{ person.result?.ruleSizeCode || '未归并' }}</td>
-              <td>{{ person.result?.sizeCode || '—' }}</td>
-              <td>{{ personStatusLabel(person) }}</td>
+            <tr v-for="(row, rowIndex) in detailTableRows.slice(0, 30)" :key="rowIndex">
+              <td
+                v-for="(cell, cellIndex) in row"
+                :key="cellIndex"
+                :class="cellIndex === 0 ? 'num' : ''"
+              >
+                {{ cellText(cell) }}
+              </td>
             </tr>
           </tbody>
         </table>

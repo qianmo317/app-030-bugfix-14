@@ -4,7 +4,7 @@
  */
 import type { Gender, Person, Project, SizeRule, SummaryRow } from './types'
 import { specialFlagLabel } from './sizeRules'
-import { conservationText, type Summary } from './merge'
+import { conservationText, isSpecialPerson, type Summary } from './merge'
 import { chestWaistDiffCm, formatCm } from './precision'
 import type { Sheet } from './xlsx'
 
@@ -31,6 +31,40 @@ export function personStatusLabel(person: Person): string {
 
 export function summaryRowLabel(rule: SizeRule, row: SummaryRow): string {
   return row.isSpecial ? `${specialFlagLabel(rule, row.sizeCode)}（${row.sizeCode}）` : row.sizeCode
+}
+
+/**
+ * 导出与预览共用的去重口径：同一人（按 id）只允许出现一次。
+ * 被确认为重复并排除（status='duplicate'）的人仍是不同记录、要保留在明细里；
+ * 这里只兜底防止同一条记录因任何原因被取两遍。
+ */
+export function uniquePersons(persons: Person[]): Person[] {
+  const seen = new Set<string>()
+  const result: Person[] = []
+  for (const person of persons) {
+    if (seen.has(person.id)) continue
+    seen.add(person.id)
+    result.push(person)
+  }
+  return result
+}
+
+/** 空字符串 / null 才算没值；只有空格的单元格是有值的，按原样保留 */
+export function hasText(value: string | null | undefined): value is string {
+  return value !== null && value !== undefined && value !== ''
+}
+
+/** 拼接备注等字段：只过滤真空值，纯空格片段保留其内容 */
+function joinParts(parts: (string | null | undefined)[]): string {
+  return parts.filter(hasText).join('；')
+}
+
+function diffCell(person: Person): string {
+  return person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : ''
+}
+
+function measureCell(value: number): string {
+  return value > 0 ? formatCm(value) : ''
 }
 
 function stamp(date: Date): string {
@@ -145,22 +179,30 @@ export const DETAIL_HEADER = [
 ]
 
 export function detailRows(ctx: BaseContext): (string | number)[][] {
-  const { project } = ctx
+  const { project, rule } = ctx
   const rows: (string | number)[][] = [DETAIL_HEADER]
-  for (const person of project.persons) {
+  for (const person of uniquePersons(project.persons)) {
+    const override = person.result?.manualOverride
+    // 列顺序必须与 DETAIL_HEADER 严格对齐（18 列），否则回贴核对会错列
     rows.push([
       person.sourceRow ?? '',
       person.name,
       genderLabel(person.gender),
       person.orgUnit,
       person.batch,
-      person.heightCm > 0 ? formatCm(person.heightCm) : '',
-      person.weightKg ? formatCm(person.weightKg) : '',
-      person.chestCm > 0 ? formatCm(person.chestCm) : '',
-      person.waistCm > 0 ? formatCm(person.waistCm) : '',
+      measureCell(person.heightCm),
+      person.weightKg && person.weightKg > 0 ? formatCm(person.weightKg) : '',
+      measureCell(person.chestCm),
+      measureCell(person.waistCm),
+      diffCell(person),
+      person.result?.ruleSizeCode ?? '',
       person.result?.sizeCode ?? '',
+      override ? '是' : '否',
+      override?.by ?? '',
+      override?.reason ?? '',
+      person.specialFlag ? specialFlagLabel(rule, person.specialFlag) : '',
       personStatusLabel(person),
-      [person.note, person.statusReason].filter((part) => part).join('；')
+      joinParts([person.note, person.statusReason])
     ])
   }
   return rows
@@ -184,24 +226,33 @@ export const SPECIAL_HEADER = [
   '备注'
 ]
 
+/**
+ * 特殊体型清单的取数口径与归并页一致：isSpecialPerson（带标记且有效）。
+ * 带标记但被判无效 / 重复排除的人不在清单内，人数与归并页 specialPersonCount 相同。
+ */
+export function specialPersons(ctx: BaseContext): Person[] {
+  return uniquePersons(ctx.project.persons).filter(isSpecialPerson)
+}
+
 export function specialRows(ctx: BaseContext): (string | number)[][] {
-  const { rule, project } = ctx
+  const { rule } = ctx
   const rows: (string | number)[][] = [SPECIAL_HEADER]
-  for (const person of project.persons) {
+  for (const person of specialPersons(ctx)) {
+    // 列顺序必须与 SPECIAL_HEADER 严格对齐（13 列）
     rows.push([
       person.sourceRow ?? '',
       person.name,
       genderLabel(person.gender),
       person.orgUnit,
       person.batch,
-      formatCm(person.heightCm),
-      formatCm(person.chestCm),
-      formatCm(person.waistCm),
-      person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : '',
+      measureCell(person.heightCm),
+      measureCell(person.chestCm),
+      measureCell(person.waistCm),
+      diffCell(person),
       specialFlagLabel(rule, person.specialFlag),
-      person.result?.sizeCode ?? '规则未覆盖',
+      person.result?.ruleSizeCode ?? '规则未覆盖',
       personStatusLabel(person),
-      [person.note, person.statusReason].filter((part) => part).join('；')
+      joinParts([person.note, person.statusReason])
     ])
   }
   return rows

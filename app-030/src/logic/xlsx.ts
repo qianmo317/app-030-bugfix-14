@@ -137,8 +137,16 @@ function sheetXml(rows: CellValue[][]): string {
     .map((row, rowIndex) => {
       const cells = row
         .map((cell, cellIndex) => {
+          // null / undefined / 空串才是空单元格；只有空格的字符串是有值的，保留空白并参与对齐
           if (cell === null || cell === undefined || cell === '') return ''
-          return `<c r="${columnName(cellIndex)}${rowIndex + 1}" t="inlineStr"><is><t>${String(cell)}</t></is></c>`
+          const ref = `${columnName(cellIndex)}${rowIndex + 1}`
+          if (typeof cell === 'number' && Number.isFinite(cell)) {
+            // 数值写成默认（数值）类型，Excel 里才能直接 SUM；数量列不能是文字
+            return `<c r="${ref}"><v>${cell}</v></c>`
+          }
+          const text = String(cell)
+          // xml:space="preserve" 保留前后空格（纯空格单元格不能塌成空值）；内容必须转义，否则文件损坏
+          return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(text)}</t></is></c>`
         })
         .join('')
       return `<row r="${rowIndex + 1}">${cells}</row>`

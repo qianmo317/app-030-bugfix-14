@@ -8,6 +8,15 @@ import { anomalyText } from './analyze'
 
 export type MergeResult = { durationMs: number }
 
+/**
+ * 是否计入「特殊体型清单 / 特殊单列」的唯一口径：带特殊标记且状态为有效。
+ * 带上特殊标记但被判为无效或重复排除的人不算——归并汇总、页面清单块、
+ * 导出清单必须共用本判定，不能一处按标记、一处按状态。
+ */
+export function isSpecialPerson(person: Person): boolean {
+  return person.status === 'active' && person.specialFlag !== null && person.specialFlag.trim() !== ''
+}
+
 /** 按规则计算单人号型；数据不完整或胸腰差不在区间内返回 null（未归并） */
 export function computeRuleSize(rule: SizeRule, person: Person): { sizeCode: string; fit: 'Y' | 'A' | 'B' | 'C' } | null {
   if (!person.heightCm || !person.chestCm || !person.waistCm) return null
@@ -190,12 +199,12 @@ export function buildSummary(project: Project, rule: SizeRule): Summary {
     if (person.status !== 'active') continue
     if (person.result?.manualOverride) overrideCount += 1
 
-    if (person.specialFlag) {
+    if (isSpecialPerson(person)) {
       specialPersonCount += 1
       // 特殊体型统一用标记码入桶，展示时再映射成中文标签
-      accumulate(specialMap, person.specialFlag, person.gender, true)
-      accumulate(orgMap.get(orgKey)!.rows, person.specialFlag, person.gender, true)
-      accumulate(batchMap.get(batchKey)!.rows, person.specialFlag, person.gender, true)
+      accumulate(specialMap, person.specialFlag as string, person.gender, true)
+      accumulate(orgMap.get(orgKey)!.rows, person.specialFlag as string, person.gender, true)
+      accumulate(batchMap.get(batchKey)!.rows, person.specialFlag as string, person.gender, true)
       continue
     }
 
