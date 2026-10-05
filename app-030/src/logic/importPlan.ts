@@ -3,7 +3,7 @@
  * 严格校验：数值范围、性别值（男/女/M/F）、重复行（同名 + 同班级 + 同身高体重，只提示不删除）。
  */
 import type { Gender, Person, Project, SizeRule } from './types'
-import { analyzeDraft, makePersonId, duplicateKeyOf, type PersonDraft } from './analyze'
+import { analyzeDraft, makePersonId, duplicateKeyOf, duplicateKeyOfDraft, type PersonDraft } from './analyze'
 import { parseLengthCm, parseWeightKg } from './precision'
 
 export type ImportFieldKey =
@@ -55,6 +55,11 @@ export const EMPTY_MAPPING: ColumnMapping = {
 
 function normalizeHeader(text: string): string {
   return text.replace(/[\s（）()：:_\-/]/g, '').toLowerCase()
+}
+
+/** 更新匹配键：姓名 + 班级/车间（规格书与导入页文案口径一致，不含性别） */
+export function personUpdateKey(name: string, orgUnit: string): string {
+  return `${name.trim()}|${orgUnit.trim()}`
 }
 
 export function guessMapping(header: string[]): ColumnMapping {
@@ -180,7 +185,9 @@ export function buildDraftFromRow(
   if (weightRaw !== '' && weightKg === null) return { draft: null, error: `体重「${weightRaw}」不是有效数字`, warning: '' }
 
   const flag = resolveSflag(cellAt(cells, mapping.specialFlag), rule)
-  const noteParts = [cellAt(cells, mapping.note)]
+  // 备注按原文保留（首尾空格也是内容，纯空格 ≠ 空单元格）；结构化字段才做 trim
+  const noteRaw = mapping.note === null ? '' : (cells[mapping.note] ?? '')
+  const noteParts = [noteRaw]
   if (flag.warning) noteParts.push(flag.warning)
 
   return {
@@ -214,11 +221,14 @@ export function buildDryRun(
   const started = performance.now()
   const existingByKey = new Map<string, Person>()
   const duplicateKeys = new Map<string, string>()
+  const duplicateKeyPersons = new Map<string, Person>()
   for (const person of project.persons) {
-    const key = `${person.name.trim()}|${person.orgUnit.trim()}|${person.gender}`
+    // 更新匹配口径：姓名 + 班级/车间（不含性别——性别录错重传是更新，不是第二个人）
+    const key = personUpdateKey(person.name, person.orgUnit)
     if (!existingByKey.has(key)) existingByKey.set(key, person)
     const dupKey = duplicateKeyOf(person)
     if (!duplicateKeys.has(dupKey)) duplicateKeys.set(dupKey, `既有行「${person.name}」`)
+    if (!duplicateKeyPersons.has(dupKey)) duplicateKeyPersons.set(dupKey, person)
   }
 
   const rows: DryRunRow[] = []
@@ -235,13 +245,16 @@ export function buildDryRun(
     }
     const draft = parsed.draft
     const outcome = analyzeDraft(draft, rule)
-    const key = `${draft.name.trim()}|${draft.orgUnit.trim()}|${draft.gender}`
+    const key = personUpdateKey(draft.name, draft.orgUnit)
     const existing = existingByKey.get(key)
 
-    const dupKey = [draft.name.trim(), draft.orgUnit.trim(), draft.heightCm ?? '', draft.weightKg ?? ''].join('|')
-    let duplicateOf: string | null = duplicateKeys.get(dupKey) ?? null
+    const dupKey = duplicateKeyOfDraft(draft)
+    // 更新同一人时重复键会命中自己，不能把本人当成重复对象
+    const selfPerson = existing ? duplicateKeyPersons.get(dupKey) : undefined
+    const selfHit = Boolean(existing && selfPerson && selfPerson.id === existing.id)
+    let duplicateOf: string | null = selfHit ? null : duplicateKeys.get(dupKey) ?? null
     const earlierLine = fileDuplicateKeys.get(dupKey)
-    if (!duplicateOf && earlierLine !== undefined) duplicateOf = `本文件第 ${earlierLine} 行`
+    if (!duplicateOf && earlierLine !== undefined && !selfHit) duplicateOf = `本文件第 ${earlierLine} 行`
     if (!fileDuplicateKeys.has(dupKey)) fileDuplicateKeys.set(dupKey, row.lineNo)
     if (duplicateOf) counts.duplicate += 1
 
@@ -324,7 +337,7 @@ export type ApplyResult = { added: number; updated: number; invalid: number; ski
 export function applyImport(project: Project, dryRun: DryRun, rule: SizeRule): ApplyResult {
   const existingByKey = new Map<string, Person>()
   for (const person of project.persons) {
-    const key = `${person.name.trim()}|${person.orgUnit.trim()}|${person.gender}`
+    const key = personUpdateKey(person.name, person.orgUnit)
     if (!existingByKey.has(key)) existingByKey.set(key, person)
   }
   const result: ApplyResult = { added: 0, updated: 0, invalid: 0, skipped: 0 }
@@ -334,11 +347,13 @@ export function applyImport(project: Project, dryRun: DryRun, rule: SizeRule): A
       continue
     }
     const draft = row.draft
-    const key = `${draft.name.trim()}|${draft.orgUnit.trim()}|${draft.gender}`
+    const key = personUpdateKey(draft.name, draft.orgUnit)
     const created = createPersonFromDraft(draft, rule, row.duplicateOf)
     if (row.kind === 'update') {
       const existing = existingByKey.get(key)
       if (existing) {
+        existing.gender = created.gender
+        existing.batch = created.batch
         existing.heightCm = created.heightCm
         existing.weightKg = created.weightKg
         existing.chestCm = created.chestCm

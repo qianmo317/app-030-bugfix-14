@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { createProject, deleteProject, store } from '../logic/store'
 import { DEFAULT_RULE_VERSION } from '../logic/sizeRules'
+import { isSpecialPerson } from '../logic/merge'
 import type { Project, ProjectKind } from '../logic/types'
 
 const router = useRouter()
@@ -32,7 +33,7 @@ function projectStats(project: Project) {
     if (person.status === 'active') active += 1
     else if (person.status === 'invalid') invalid += 1
     else duplicate += 1
-    if (person.specialFlag && person.status === 'active') special += 1
+    if (isSpecialPerson(person)) special += 1
   }
   return { total: project.persons.length, active, invalid, duplicate, special }
 }

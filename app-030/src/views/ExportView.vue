@@ -5,15 +5,17 @@ import { ensureMerged, flushProject, getProject, getRule, store } from '../logic
 import { buildSummary, conservationText } from '../logic/merge'
 import {
   buildOrderSheet,
+  detailRowFor,
   detailRows,
   detailWorkbookSheets,
   exportBaseName,
   orderSheetToRows,
   orderWorkbookSheets,
-  personStatusLabel,
+  specialPersons,
   specialRows,
   stockAdviceRows,
-  summaryRowLabel
+  summaryRowLabel,
+  DETAIL_HEADER
 } from '../logic/exporter'
 import { downloadBlob, downloadText, toCsvText } from '../logic/csv'
 import { buildXlsxBlob } from '../logic/xlsx'
@@ -45,6 +47,14 @@ const orderSheet = computed(() => {
   const ctx = context()
   return ctx ? buildOrderSheet(ctx) : null
 })
+
+/** 页面清单块与导出文件共用同一批人：带特殊标记且为有效行 */
+const specialList = computed(() => (project.value ? specialPersons({ project: project.value, rule: rule.value }) : []))
+
+/** 明细预览与导出文件逐列一致：直接复用导出用的 18 列行映射 */
+const detailPreviewRows = computed(() =>
+  project.value ? project.value.persons.slice(0, 30).map((person) => detailRowFor(person, rule.value)) : []
+)
 
 const blocked = computed(() => !summary.value?.conserved)
 
@@ -294,7 +304,7 @@ const genderText = (gender: string): string => (gender === 'male' ? '男' : '女
             </tr>
           </thead>
           <tbody>
-            <tr v-for="person in project.persons.filter((item) => item.specialFlag)" :key="person.id">
+            <tr v-for="person in specialList" :key="person.id">
               <td class="num">{{ person.sourceRow ?? '—' }}</td>
               <td>{{ person.name }}</td>
               <td>{{ genderText(person.gender) }}</td>
@@ -306,9 +316,9 @@ const genderText = (gender: string): string => (gender === 'male' ? '男' : '女
                 {{ person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : '—' }}
               </td>
               <td>{{ summaryRowLabel(rule, { sizeCode: person.specialFlag ?? '', gender: person.gender, qty: 1, isSpecial: true }) }}</td>
-              <td>{{ person.result?.sizeCode || '规则未覆盖' }}</td>
+              <td>{{ person.result?.ruleSizeCode || '规则未覆盖' }}</td>
             </tr>
-            <tr v-if="summary.totals.specialPersonCount === 0">
+            <tr v-if="specialList.length === 0">
               <td colspan="10">没有特殊体型记录</td>
             </tr>
           </tbody>
@@ -318,36 +328,20 @@ const genderText = (gender: string): string => (gender === 'male' ? '男' : '女
 
     <div class="card no-print">
       <div class="card-head">
-        <h3>量体明细前 30 行（导出文件包含全部 {{ project.persons.length }} 行）</h3>
+        <h3>量体明细前 30 行（与导出文件逐列一致，导出包含全部 {{ project.persons.length }} 行、{{ DETAIL_HEADER.length }} 列）</h3>
       </div>
-      <div class="table-wrap">
+      <div class="table-scroll">
         <table class="data-table">
           <thead>
             <tr>
-              <th class="num">行号</th>
-              <th>姓名</th>
-              <th>性别</th>
-              <th>班级/车间</th>
-              <th class="num">身高</th>
-              <th class="num">胸围</th>
-              <th class="num">腰围</th>
-              <th>规则号型</th>
-              <th>生效号型</th>
-              <th>状态</th>
+              <th v-for="(header, index) in DETAIL_HEADER" :key="index" :class="index === 0 ? 'num' : ''">{{ header }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="person in project.persons.slice(0, 30)" :key="person.id">
-              <td class="num">{{ person.sourceRow ?? '—' }}</td>
-              <td>{{ person.name }}</td>
-              <td>{{ genderText(person.gender) }}</td>
-              <td>{{ person.orgUnit || '—' }}</td>
-              <td class="num">{{ formatCm(person.heightCm) }}</td>
-              <td class="num">{{ formatCm(person.chestCm) }}</td>
-              <td class="num">{{ formatCm(person.waistCm) }}</td>
-              <td>{{ person.result?.ruleSizeCode || '未归并' }}</td>
-              <td>{{ person.result?.sizeCode || '—' }}</td>
-              <td>{{ personStatusLabel(person) }}</td>
+            <tr v-for="(row, rowIndex) in detailPreviewRows" :key="rowIndex">
+              <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="cellIndex === 0 ? 'num' : ''">
+                {{ cell === '' ? '—' : cell }}
+              </td>
             </tr>
           </tbody>
         </table>

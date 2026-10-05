@@ -4,7 +4,7 @@
  */
 import type { Gender, Person, Project, SizeRule, SummaryRow } from './types'
 import { specialFlagLabel } from './sizeRules'
-import { conservationText, type Summary } from './merge'
+import { conservationText, isSpecialPerson, type Summary } from './merge'
 import { chestWaistDiffCm, formatCm } from './precision'
 import type { Sheet } from './xlsx'
 
@@ -144,24 +144,42 @@ export const DETAIL_HEADER = [
   '备注'
 ]
 
+export function personNote(person: Person): string {
+  return [person.note, person.statusReason].filter((part) => part).join('；')
+}
+
+/** 按 18 列表头逐列对齐取值，列序与 DETAIL_HEADER 完全一致，禁止错位/少列 */
+export function detailRowFor(person: Person, rule: SizeRule): (string | number)[] {
+  const diff =
+    person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : ''
+  const override = person.result?.manualOverride
+  return [
+    person.sourceRow ?? '',
+    person.name,
+    genderLabel(person.gender),
+    person.orgUnit,
+    person.batch,
+    person.heightCm > 0 ? formatCm(person.heightCm) : '',
+    person.weightKg ? formatCm(person.weightKg) : '',
+    person.chestCm > 0 ? formatCm(person.chestCm) : '',
+    person.waistCm > 0 ? formatCm(person.waistCm) : '',
+    diff,
+    person.result?.ruleSizeCode ?? '',
+    person.result?.sizeCode ?? '',
+    override ? '是' : '否',
+    override?.by ?? '',
+    override?.reason ?? '',
+    person.specialFlag ? specialFlagLabel(rule, person.specialFlag) : '',
+    personStatusLabel(person),
+    personNote(person)
+  ]
+}
+
 export function detailRows(ctx: BaseContext): (string | number)[][] {
-  const { project } = ctx
+  const { project, rule } = ctx
   const rows: (string | number)[][] = [DETAIL_HEADER]
   for (const person of project.persons) {
-    rows.push([
-      person.sourceRow ?? '',
-      person.name,
-      genderLabel(person.gender),
-      person.orgUnit,
-      person.batch,
-      person.heightCm > 0 ? formatCm(person.heightCm) : '',
-      person.weightKg ? formatCm(person.weightKg) : '',
-      person.chestCm > 0 ? formatCm(person.chestCm) : '',
-      person.waistCm > 0 ? formatCm(person.waistCm) : '',
-      person.result?.sizeCode ?? '',
-      personStatusLabel(person),
-      [person.note, person.statusReason].filter((part) => part).join('；')
-    ])
+    rows.push(detailRowFor(person, rule))
   }
   return rows
 }
@@ -184,25 +202,37 @@ export const SPECIAL_HEADER = [
   '备注'
 ]
 
+export function specialPersons(ctx: BaseContext): Person[] {
+  return ctx.project.persons.filter(isSpecialPerson)
+}
+
+export function specialRowFor(person: Person, rule: SizeRule): (string | number)[] {
+  return [
+    person.sourceRow ?? '',
+    person.name,
+    genderLabel(person.gender),
+    person.orgUnit,
+    person.batch,
+    person.heightCm > 0 ? formatCm(person.heightCm) : '',
+    person.chestCm > 0 ? formatCm(person.chestCm) : '',
+    person.waistCm > 0 ? formatCm(person.waistCm) : '',
+    person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : '',
+    person.specialFlag ? specialFlagLabel(rule, person.specialFlag) : '',
+    person.result?.ruleSizeCode || '规则未覆盖',
+    personStatusLabel(person),
+    personNote(person)
+  ]
+}
+
+/**
+ * 特殊体型清单：与归并页同一套判定（带标记且 active），
+ * 被判无效 / 重复排除的人不在此列；页面清单块也必须取自 specialPersons()。
+ */
 export function specialRows(ctx: BaseContext): (string | number)[][] {
-  const { rule, project } = ctx
+  const { rule } = ctx
   const rows: (string | number)[][] = [SPECIAL_HEADER]
-  for (const person of project.persons) {
-    rows.push([
-      person.sourceRow ?? '',
-      person.name,
-      genderLabel(person.gender),
-      person.orgUnit,
-      person.batch,
-      formatCm(person.heightCm),
-      formatCm(person.chestCm),
-      formatCm(person.waistCm),
-      person.chestCm > 0 && person.waistCm > 0 ? formatCm(chestWaistDiffCm(person.chestCm, person.waistCm)) : '',
-      specialFlagLabel(rule, person.specialFlag),
-      person.result?.sizeCode ?? '规则未覆盖',
-      personStatusLabel(person),
-      [person.note, person.statusReason].filter((part) => part).join('；')
-    ])
+  for (const person of specialPersons(ctx)) {
+    rows.push(specialRowFor(person, rule))
   }
   return rows
 }

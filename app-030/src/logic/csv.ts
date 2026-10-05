@@ -69,9 +69,9 @@ export function parseDelimitedText(text: string, delimiter?: string): string[][]
     row.push(field)
     rows.push(row)
   }
-  return rows
-    .map((cells) => cells.map((cell) => cell.trim()))
-    .filter((cells) => cells.some((cell) => cell !== ''))
+  // 不逐格 trim：首尾空格是单元格内容的一部分（纯空格 ≠ 空单元格）；
+  // 整行只有空白时才视为空行剔除。
+  return rows.filter((cells) => cells.some((cell) => cell.trim() !== ''))
 }
 
 function escapeCell(value: string | number | null | undefined): string {

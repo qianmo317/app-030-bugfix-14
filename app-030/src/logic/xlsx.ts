@@ -115,6 +115,8 @@ function buildZip(files: { name: string; content: string | Uint8Array }[]): Blob
 
 function escapeXml(value: string): string {
   return value
+    // XML 1.0 允许的控制字符只有 \t \n \r，其余（含 NUL 等）必须剔除，否则 Excel 报损坏
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -132,13 +134,26 @@ function columnName(index: number): string {
   return name
 }
 
+function isNumericCell(cell: CellValue): cell is number {
+  return typeof cell === 'number' && Number.isFinite(cell)
+}
+
 function sheetXml(rows: CellValue[][]): string {
   const body = rows
     .map((row, rowIndex) => {
       const cells = row
         .map((cell, cellIndex) => {
+          // 注意：只有 null / undefined / 空串才算"没值"；
+          // 纯空格（'   '）是有内容的单元格，必须照常写出，不能丢列。
           if (cell === null || cell === undefined || cell === '') return ''
-          return `<c r="${columnName(cellIndex)}${rowIndex + 1}" t="inlineStr"><is><t>${String(cell)}</t></is></c>`
+          const ref = `${columnName(cellIndex)}${rowIndex + 1}`
+          if (isNumericCell(cell)) {
+            return `<c r="${ref}"><v>${cell}</v></c>`
+          }
+          const rawText = String(cell)
+          // 首尾空格靠 xml:space="preserve" 保留，否则 Excel 打开会把空格吞掉
+          const preserve = /^\s|\s$/.test(rawText) ? ' xml:space="preserve"' : ''
+          return `<c r="${ref}" t="inlineStr"><is><t${preserve}>${escapeXml(rawText)}</t></is></c>`
         })
         .join('')
       return `<row r="${rowIndex + 1}">${cells}</row>`

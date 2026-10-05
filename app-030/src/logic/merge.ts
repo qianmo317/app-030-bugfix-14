@@ -8,6 +8,20 @@ import { anomalyText } from './analyze'
 
 export type MergeResult = { durationMs: number }
 
+/**
+ * 特殊体型的唯一判定口径（归并页 / 汇总 / 导出页 / 清单导出共用）：
+ * 带特殊标记且为有效行（active）才算；判为无效或重复被排除的人一律不算，
+ * 页面清单块与导出的特殊体型清单必须取自同一批人。
+ */
+export function isSpecialPerson(person: Person): boolean {
+  return person.status === 'active' && Boolean(person.specialFlag)
+}
+
+/** 本项目计入清单的特殊体型人员（归并、页面预览、导出处处一致） */
+export function specialPersonsOf(project: Project): Person[] {
+  return project.persons.filter(isSpecialPerson)
+}
+
 /** 按规则计算单人号型；数据不完整或胸腰差不在区间内返回 null（未归并） */
 export function computeRuleSize(rule: SizeRule, person: Person): { sizeCode: string; fit: 'Y' | 'A' | 'B' | 'C' } | null {
   if (!person.heightCm || !person.chestCm || !person.waistCm) return null
@@ -190,12 +204,13 @@ export function buildSummary(project: Project, rule: SizeRule): Summary {
     if (person.status !== 'active') continue
     if (person.result?.manualOverride) overrideCount += 1
 
-    if (person.specialFlag) {
+    if (isSpecialPerson(person) && person.specialFlag) {
+      const specialCode = person.specialFlag
       specialPersonCount += 1
       // 特殊体型统一用标记码入桶，展示时再映射成中文标签
-      accumulate(specialMap, person.specialFlag, person.gender, true)
-      accumulate(orgMap.get(orgKey)!.rows, person.specialFlag, person.gender, true)
-      accumulate(batchMap.get(batchKey)!.rows, person.specialFlag, person.gender, true)
+      accumulate(specialMap, specialCode, person.gender, true)
+      accumulate(orgMap.get(orgKey)!.rows, specialCode, person.gender, true)
+      accumulate(batchMap.get(batchKey)!.rows, specialCode, person.gender, true)
       continue
     }
 
